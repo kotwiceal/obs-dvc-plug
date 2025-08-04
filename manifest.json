@@ -1,11 +1,10 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
+	"id": "dvc-plug",
+	"name": "Data Version Control",
 	"version": "1.0.0",
-	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
-	"isDesktopOnly": false
+	"minAppVersion": "1.18.0",
+	"description": "Integrate DVC (Data Version Control https://dvc.org/) commands",
+	"author": "Aleksandr Kotvitskii",
+	"authorUrl": "https://github.com/kotwiceal",
+	"isDesktopOnly": true
 }
