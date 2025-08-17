@@ -50,7 +50,7 @@ class DVC {
 				}
 				resolve(stdout);
 				if (show) {
-					console.log(stdout)
+					console.log(stdout);
 					new Notice(stdout);
 				}
 			})
@@ -86,6 +86,10 @@ class DVC {
 
 	pull(arg: any, show: boolean = true): void {
 		this.cli('pull', arg);
+	}
+
+	remove(arg: any, show: boolean = true): void {
+		this.cli('remove', arg);
 	}
 
 	getFiles(): void {
@@ -137,6 +141,42 @@ export default class DVCPlugin extends Plugin {
 			}
 		});
 
+		// adds dvc push all files
+		this.addCommand({
+			id: 'dvc-push',
+			name: 'dvc: push all files',
+			callback: () => {
+				this.dvc.cli('push', '');
+			}
+		});
+
+		// adds dvc pull all files
+		this.addCommand({
+			id: 'dvc-pull',
+			name: 'dvc: pull all files',
+			callback: () => {
+				this.dvc.cli('pull', '');
+			}
+		});
+
+		// adds dvc garbage cache from workspace
+		this.addCommand({
+			id: 'dvc-garbage-cache-workspace',
+			name: 'dvc: garbage cache from workspace',
+			callback: () => {
+				this.dvc.cli('gc', '-w -f');
+			}
+		});
+
+		// adds dvc garbage cache from workspace and remote
+		this.addCommand({
+			id: 'dvc-garbage-cache-workspace-cloud',
+			name: 'dvc: garbage cache from workspace and cloud',
+			callback: () => {
+				this.dvc.cli('gc', '-w -c -f');
+			}
+		});
+
 		// adds settings tab
 		this.addSettingTab(new DVCSettingTab(this.app, this));
 
@@ -144,7 +184,7 @@ export default class DVCPlugin extends Plugin {
 		this.registerEvent(
 			this.app.workspace.on('file-menu', (menu, file) => {
 				[{com: "add", icon: "book-plus"}, {com: "push", icon: "book-up"},
-					{com: "pull", icon: "book-down"}]
+					{com: "pull", icon: "book-down"}, {com: "remove", icon: "book-minus"}]
 						.map(element => {
 							menu.addItem((item) => {
 								item
@@ -162,7 +202,7 @@ export default class DVCPlugin extends Plugin {
 		this.registerEvent(
 			this.app.workspace.on('files-menu', (menu, files) => {
 				[{com: "add", icon: "book-plus"}, {com: "push", icon: "book-up"},
-					{com: "pull", icon: "book-down"}]
+					{com: "pull", icon: "book-down"}, {com: "remove", icon: "book-minus"}]
 						.map(element => {
 							menu.addItem((item) => {
 								item

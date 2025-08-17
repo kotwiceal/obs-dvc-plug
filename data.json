@@ -1,0 +1,8 @@
+{
+  "autostage": false,
+  "autopull": true,
+  "autopullExtension": [
+    "png",
+    "fig"
+  ]
+}
