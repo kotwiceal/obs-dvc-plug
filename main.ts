@@ -219,12 +219,15 @@ export default class DVCPlugin extends Plugin {
 		// adds dvc auto pull attachment files
 		this.registerEvent(
 			this.app.workspace.on('file-open', async (file) => {
-				if (file && this.settings.autopull) {
+				if (!this.dvc.files.length) {
+					this.dvc.getFiles();
+				}
+				if (file && this.settings.autopull && this.dvc.files.length) {
 					const fileCache = this.app.metadataCache.getFileCache(file);
 					if (fileCache && fileCache.embeds) {
 						const dvcFiles = fileCache.embeds.map(embed => {
 							if (this.settings.autopullExtension.some(item => embed.link.includes(item))) {
-								return this.dvc.files.find(dvcFile => dvcFile.basename == embed.link);
+								return this.dvc.files.find(dvcFile => dvcFile.basename === embed.link);
 							}
 							return null;
 						})
