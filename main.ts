@@ -1,18 +1,19 @@
 import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, 
 	Setting, TAbstractFile, TFile, FileSystemAdapter } from 'obsidian';
 import { exec } from 'child_process';
-import { isArray } from 'util';
 
 interface DVCPluginSettings {
 	autostage: boolean;
 	autopull: boolean;
 	autopullExtension: string[];
+	startupstatus: boolean;
 }
 
 const DEFAULT_SETTINGS: DVCPluginSettings = {
 	autostage: false,
 	autopull: false,
-	autopullExtension: []
+	autopullExtension: [],
+	startupstatus: false,
 }
 
 interface remoteObj {
@@ -239,7 +240,9 @@ export default class DVCPlugin extends Plugin {
 			})
 		);
 
-		this.dvc.status();
+		if (this.settings.startupstatus) {
+			this.dvc.status();
+		}
 
 	}
 
@@ -301,6 +304,16 @@ class DVCSettingTab extends PluginSettingTab {
 					this.plugin.settings.autopullExtension = value.trim().replace(/\s+/g, " ").split(" ");
 					await this.plugin.saveSettings();
 				}));
+
+		new Setting(containerEl)
+			.setName('Auto check status')
+			.setDesc('Enable execution `dvc status` at startup')
+			.addToggle(component => component
+				.setValue(this.plugin.settings.startupstatus)
+				.onChange(async (value) => {
+					this.plugin.settings.startupstatus = value;
+					await this.plugin.saveSettings();
+				}))
 
 	}
 }

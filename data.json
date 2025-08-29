@@ -4,5 +4,6 @@
   "autopullExtension": [
     "png",
     "fig"
-  ]
+  ],
+  "startupstatus": false
 }
