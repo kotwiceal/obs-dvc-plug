@@ -5,5 +5,14 @@
     "png",
     "fig"
   ],
+  "excludeExtension": [
+    "md",
+    "json",
+    "m",
+    "tex",
+    "bib",
+    "base",
+    "canvas"
+  ],
   "startupstatus": false
 }

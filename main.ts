@@ -1,11 +1,13 @@
 import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, 
-	Setting, TAbstractFile, TFile, FileSystemAdapter } from 'obsidian';
+	Setting, TAbstractFile, TFile, TFolder, Menu, FileSystemAdapter, 
+	CachedMetadata} from 'obsidian';
 import { exec } from 'child_process';
 
 interface DVCPluginSettings {
 	autostage: boolean;
 	autopull: boolean;
 	autopullExtension: string[];
+	excludeExtension: string[];
 	startupstatus: boolean;
 }
 
@@ -13,6 +15,7 @@ const DEFAULT_SETTINGS: DVCPluginSettings = {
 	autostage: false,
 	autopull: false,
 	autopullExtension: [],
+	excludeExtension: [],
 	startupstatus: false,
 }
 
@@ -27,6 +30,7 @@ class DVC {
 	remote: remoteObj[];
 	files: TFile[];
 	statusBarItem: any;
+	lock: boolean = false;
 
 	constructor(plug: Plugin) {
 		this.plug = plug;
@@ -42,31 +46,34 @@ class DVC {
 
 	shell(command: string, show: boolean = true): Promise<string> {
 		return new Promise((resolve, reject) => {
-			exec(command, {cwd: this.cwd()}, (err, stdout, stderr) => {
-				if (err) {
-					console.log(err);
-					new Notice(stderr);
-					reject(stderr);
-					return;
-				}
-				resolve(stdout);
-				if (show) {
-					console.log(stdout);
-					new Notice(stdout);
-				}
-			})
+			if (!this.lock) {
+				this.lock =  true;
+				exec(command, {cwd: this.cwd()}, (err, stdout, stderr) => {
+					if (err) {
+						console.log(err);
+						new Notice(stderr);
+						reject(stderr);
+						return;
+					}
+					this.lock = false;
+					resolve(stdout);
+					if (show) {
+						console.log(stdout);
+						new Notice(stdout);
+					}
+				})
+			}
 		});
 	}
 
-	cli(command: string, argument: any, show: boolean = true): void {
-		let arg: string = '';
-		if (typeof argument == 'string') {
-			arg = argument;
-		} else {
-			if (Array.isArray(argument)) {
-				arg = argument.map(file => `"${file.path}"`).join(" ");
+	cli(command: string, argument: string | TFile[] | TFolder[], show: boolean = true): void {
+		let arg: string | TFile[] | TFolder[] = argument
+		if (Array.isArray(arg)) {
+			if (arg.length > 0) {
+				arg = arg.map(item => ((item instanceof TFile) || (item instanceof TFolder)) ? 
+					`"${item.path}"` : item).join(" ")
 			} else {
-				arg = `"${argument.path}"`;
+				return
 			}
 		}
 		this.shell(`dvc ${command} ${arg}`, show);
@@ -94,7 +101,7 @@ class DVC {
 	}
 
 	getFiles(): void {
-		this.files = this.plug.app.vault.getFiles().filter(file => file.extension == 'dvc');
+		this.files = this.plug.app.vault.getFiles().filter(file => file.extension === 'dvc');
 	}
 
 	getRemote(): Promise<remoteObj[]> {
@@ -111,6 +118,46 @@ class DVC {
 				.catch((err) => reject(err));
 		});
 	}
+
+	getIndexed(absFiles: TAbstractFile[] | TFile[] | TFolder[]): TFile[] {
+		let filtAbsFiles: any[] = absFiles.map(absFile => {
+			let name: string
+			if (absFile instanceof TFile) {
+				name = absFile.basename
+			} else if (absFile instanceof TFolder) {
+				name = absFile.name
+			}
+			return this.files.find(f => f.basename === name)
+		}).filter(Boolean)
+		return [...new Set(filtAbsFiles)]
+	}
+
+	getAttachments(file: CachedMetadata | null, extensions: string[] | null): TFile[] {
+		let attachLinks: string[] = []
+		
+		let temp = [file?.links, file?.frontmatterLinks, file?.embeds].filter(Boolean).map(links => {
+			attachLinks = attachLinks.concat(links.map(l => l.link))
+		})
+
+		attachLinks = [...new Set(attachLinks)]
+
+		if (!this.files.length) {
+			this.getFiles();
+		}
+
+		let dvcfiles: any[] = attachLinks.map(attachLink => {
+			if (extensions) {
+				if (extensions.some(item => attachLink.includes(item))) {
+					return this.files.find(file => file.basename === attachLink);
+				} else {
+					return null;
+				}
+			}
+		}).filter(Boolean)
+
+		return dvcfiles
+	}
+
 }
 
 export default class DVCPlugin extends Plugin {
@@ -184,61 +231,27 @@ export default class DVCPlugin extends Plugin {
 		// adds context menus for file
 		this.registerEvent(
 			this.app.workspace.on('file-menu', (menu, file) => {
-				[{com: "add", icon: "book-plus"}, {com: "push", icon: "book-up"},
-					{com: "pull", icon: "book-down"}, {com: "remove", icon: "book-minus"}]
-						.map(element => {
-							menu.addItem((item) => {
-								item
-								.setTitle(`dvc: ${element.com}`)
-								.setIcon(element.icon)
-								.onClick(async () => {
-									this.dvc.cli(element.com, [file]);
-								});
-						});
-				})
+				this.buildFileMenu(menu, [file])
 			})
 		);
 
 		// adds context menus for files
 		this.registerEvent(
 			this.app.workspace.on('files-menu', (menu, files) => {
-				[{com: "add", icon: "book-plus"}, {com: "push", icon: "book-up"},
-					{com: "pull", icon: "book-down"}, {com: "remove", icon: "book-minus"}]
-						.map(element => {
-							menu.addItem((item) => {
-								item
-								.setTitle(`dvc: ${element.com}`)
-								.setIcon(element.icon)
-								.onClick(async () => {
-									this.dvc.cli(element.com, files);
-								});
-						});
-				})
+				this.buildFileMenu(menu, files)
 			})
 		);
 
 		// adds dvc auto pull attachment files
 		this.registerEvent(
-			this.app.workspace.on('file-open', async (file) => {
-				if (!this.dvc.files.length) {
-					this.dvc.getFiles();
-				}
-				if (file && this.settings.autopull && this.dvc.files.length) {
-					const fileCache = this.app.metadataCache.getFileCache(file);
-					if (fileCache && fileCache.embeds) {
-						const dvcFiles = fileCache.embeds.map(embed => {
-							if (this.settings.autopullExtension.some(item => embed.link.includes(item))) {
-								return this.dvc.files.find(dvcFile => dvcFile.basename === embed.link);
-							}
-							return null;
-						})
-						if (dvcFiles) {
-							this.dvc.pull(dvcFiles.filter(item => item));
-						}
-					}
+			this.app.workspace.on('file-open', async (file: TFile | null) => {
+				if (this.settings.autopull) {
+					const fileCache: CachedMetadata | null = this.app.metadataCache.getFileCache(file);
+					const dvcFiles: TFile[] = this.dvc.getAttachments(fileCache, this.settings.autopullExtension)
+					this.dvc.pull(dvcFiles)
 				}
 			})
-		);
+		)
 
 		if (this.settings.startupstatus) {
 			this.dvc.status();
@@ -256,6 +269,51 @@ export default class DVCPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	buildFileMenu(menu: Menu, files: TAbstractFile[]): void {
+		const pattern = [
+			{command: "add", icon: "book-plus"}, 
+			{command: "push", icon: "book-up"},
+			{command: "pull", icon: "book-down"}, 
+			{command: "remove", icon: "book-minus"}
+		]
+	
+		let indexed = this.dvc.getIndexed(files)
+
+		let sortPattern: any[] = []
+
+		let args: TAbstractFile[] | TFile[]
+
+		if (indexed.length > 0) {
+			args = indexed
+			sortPattern = sortPattern.concat(pattern[1], pattern[2], pattern[3])
+		} else {
+			args = files.filter(file => this.settings.excludeExtension.some(item => {
+					if (file instanceof TFile) {
+						return file.extension.includes(item)
+					} else {
+						return false
+					}
+				})
+			)
+			if (args.length > 0) {
+				sortPattern = []
+			} else {
+				sortPattern = sortPattern.concat(pattern[0])
+			}
+		}
+
+		sortPattern.map(element => {
+				menu.addItem((item) => {
+					item
+					.setTitle(`dvc: ${element.command}`)
+					.setIcon(element.icon)
+					.onClick(async () => {
+						this.dvc.cli(element.command, args);
+					});
+			});
+		})
 	}
 
 }
@@ -314,6 +372,17 @@ class DVCSettingTab extends PluginSettingTab {
 					this.plugin.settings.startupstatus = value;
 					await this.plugin.saveSettings();
 				}))
+
+		new Setting(containerEl)
+			.setName('Extension list to ignore by plugin')
+			.setDesc('File attachment extension list to ignore by plugin')
+			.addText(text => text
+				.setPlaceholder('Enter a list of extensions separated by spaces')
+				.setValue(this.plugin.settings.excludeExtension.join(" "))
+				.onChange(async (value) => {
+					this.plugin.settings.excludeExtension = value.trim().replace(/\s+/g, " ").split(" ");
+					await this.plugin.saveSettings();
+				}));
 
 	}
 }
