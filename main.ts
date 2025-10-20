@@ -1,6 +1,6 @@
 import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, 
 	Setting, TAbstractFile, TFile, TFolder, Menu, FileSystemAdapter, 
-	CachedMetadata, DataAdapter, normalizePath} from 'obsidian';
+	CachedMetadata, Modal, normalizePath} from 'obsidian';
 import { exec } from 'child_process';
 
 interface DVCPluginSettings {
@@ -138,7 +138,7 @@ class DVC {
 		return [...new Set(filtAbsFiles)]
 	}
 
-	getAttachments(file: CachedMetadata | null, extensions: string[] | null): TFile[] {
+	getAttachments(file: CachedMetadata | null, extensions: string[]): TFile[] {
 		let attachLinks: string[] = []
 		
 		let temp = [file?.links, file?.frontmatterLinks, file?.embeds].filter(Boolean).map(links => {
@@ -152,12 +152,14 @@ class DVC {
 		}
 
 		let dvcfiles: any[] = attachLinks.map(attachLink => {
-			if (extensions) {
+			if (extensions.length > 0) {
 				if (extensions.some(item => attachLink.includes(item))) {
-					return this.files.find(file => file.basename === attachLink);
+					return this.files.find(file => file.basename === attachLink)
 				} else {
 					return null;
 				}
+			} else {
+				return this.files.find(file => file.basename === attachLink)
 			}
 		}).filter(Boolean)
 
@@ -178,7 +180,7 @@ export default class DVCPlugin extends Plugin {
 		// adds git/dvc initalization
 		this.addCommand({
 			id: 'dvc-init',
-			name: 'dvc: init',
+			name: 'initialize',
 			callback: () => {
 				this.dvc.shell('git init && dvc init -f');
 			}
@@ -187,7 +189,7 @@ export default class DVCPlugin extends Plugin {
 		// todo create/select dvc remote
 		this.addCommand({
 			id: 'dvc-remote',
-			name: 'dvc: remote',
+			name: 'list remote',
 			callback: () => {
 				this.dvc.getRemote().then((data) => {
 					console.log(data);
@@ -198,7 +200,7 @@ export default class DVCPlugin extends Plugin {
 		// adds dvc push all files
 		this.addCommand({
 			id: 'dvc-push',
-			name: 'dvc: push all files',
+			name: 'push all files',
 			callback: () => {
 				this.dvc.cli('push', '');
 			}
@@ -207,7 +209,7 @@ export default class DVCPlugin extends Plugin {
 		// adds dvc pull all files
 		this.addCommand({
 			id: 'dvc-pull',
-			name: 'dvc: pull all files',
+			name: 'pull all files',
 			callback: () => {
 				this.dvc.cli('pull', '');
 			}
@@ -216,7 +218,7 @@ export default class DVCPlugin extends Plugin {
 		// adds dvc garbage cache from workspace
 		this.addCommand({
 			id: 'dvc-garbage-cache-workspace',
-			name: 'dvc: garbage cache from workspace',
+			name: 'garbage cache from workspace',
 			callback: () => {
 				this.dvc.cli('gc', '-w -f');
 			}
@@ -225,9 +227,27 @@ export default class DVCPlugin extends Plugin {
 		// adds dvc garbage cache from workspace and remote
 		this.addCommand({
 			id: 'dvc-garbage-cache-workspace-cloud',
-			name: 'dvc: garbage cache from workspace and cloud',
+			name: 'garbage cache from workspace and cloud',
 			callback: () => {
 				this.dvc.cli('gc', '-w -c -f');
+			}
+		});
+
+		// adds dvc export attachemnt links
+		this.addCommand({
+			id: 'dvc-get-attach-links',
+			name: 'export attachemnt links',
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				const file: TFile | null = this.app.workspace.getActiveFile();				
+				if (file instanceof TFile) {
+					const fileCache: CachedMetadata | null = this.app.metadataCache.getFileCache(file);
+					const dvcFiles: TFile[] = this.dvc.getAttachments(fileCache, [])
+					if (dvcFiles.length > 0) {
+						let section: string = ["\n```\n", ...dvcFiles.map(dvcFile => `"${dvcFile.path}"\n`), "```\n"].join("")
+						this.app.vault.adapter.append(file.path, section)
+					}
+				}
+			
 			}
 		});
 
@@ -250,11 +270,13 @@ export default class DVCPlugin extends Plugin {
 
 		// adds dvc auto pull attachment files
 		this.registerEvent(
-			this.app.workspace.on('file-open', async (file: TFile | null) => {
-				if (this.settings.autopull) {
-					const fileCache: CachedMetadata | null = this.app.metadataCache.getFileCache(file);
-					const dvcFiles: TFile[] = this.dvc.getAttachments(fileCache, this.settings.autopullExtension)
-					this.dvc.pull(dvcFiles)
+			this.app.workspace.on('file-open', (file: TFile | null) => {
+				if (file instanceof TFile) {
+					if (this.settings.autopull) {
+						const fileCache: CachedMetadata | null = this.app.metadataCache.getFileCache(file);
+						const dvcFiles: TFile[] = this.dvc.getAttachments(fileCache, this.settings.autopullExtension)
+						this.dvc.pull(dvcFiles)
+					}
 				}
 			})
 		)
@@ -263,7 +285,6 @@ export default class DVCPlugin extends Plugin {
 			this.dvc.status();
 		}
 
-		console.log(this)
 	}
 
 	onunload() {
@@ -312,13 +333,13 @@ export default class DVCPlugin extends Plugin {
 		}
 
 		sortPattern.map(element => {
-				menu.addItem((item) => {
-					item
-					.setTitle(`dvc: ${element.command}`)
-					.setIcon(element.icon)
-					.onClick(async () => {
-						this.dvc.cli(element.command, args);
-					});
+			menu.addItem((item) => {
+				item
+				.setTitle(`dvc: ${element.command}`)
+				.setIcon(element.icon)
+				.onClick(() => {
+					this.dvc.cli(element.command, args);
+				});
 			});
 		})
 	}
