@@ -1,6 +1,6 @@
 import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, 
 	Setting, TAbstractFile, TFile, TFolder, Menu, FileSystemAdapter, 
-	CachedMetadata} from 'obsidian';
+	CachedMetadata, DataAdapter, normalizePath} from 'obsidian';
 import { exec } from 'child_process';
 
 interface DVCPluginSettings {
@@ -30,7 +30,8 @@ class DVC {
 	remote: remoteObj[];
 	files: TFile[];
 	statusBarItem: any;
-	lock: boolean = false;
+	lock: string | null = null;
+	process: Promise<string> | null = null;
 
 	constructor(plug: Plugin) {
 		this.plug = plug;
@@ -46,37 +47,38 @@ class DVC {
 
 	shell(command: string, show: boolean = true): Promise<string> {
 		return new Promise((resolve, reject) => {
-			if (!this.lock) {
-				this.lock =  true;
-				exec(command, {cwd: this.cwd()}, (err, stdout, stderr) => {
-					if (err) {
-						console.log(err);
-						new Notice(stderr);
-						reject(stderr);
-						return;
-					}
-					this.lock = false;
-					resolve(stdout);
-					if (show) {
-						console.log(stdout);
-						new Notice(stdout);
-					}
-				})
-			}
+			exec(command, {cwd: this.cwd()}, (err, stdout, stderr) => {
+				if (err) {
+					console.log(err);
+					new Notice(stderr);
+					reject(stderr);
+					return;
+				}
+				resolve(this.getLock())
+				if (show) {
+					console.log(stdout);
+					new Notice(stdout);
+				}
+			})
 		});
 	}
 
 	cli(command: string, argument: string | TFile[] | TFolder[], show: boolean = true): void {
-		let arg: string | TFile[] | TFolder[] = argument
-		if (Array.isArray(arg)) {
-			if (arg.length > 0) {
-				arg = arg.map(item => ((item instanceof TFile) || (item instanceof TFolder)) ? 
-					`"${item.path}"` : item).join(" ")
-			} else {
-				return
-			}
-		}
-		this.shell(`dvc ${command} ${arg}`, show);
+		this.getLock().then((lock: string) => {
+				let arg: string | TFile[] | TFolder[] = argument
+				if (Array.isArray(arg)) {
+					if (arg.length > 0) {
+						arg = arg.map(item => ((item instanceof TFile) || (item instanceof TFolder)) ? 
+							`"${item.path}"` : item).join(" ")
+					} else {
+						return
+					}
+				}
+				this.process = this.shell(`dvc ${command} ${arg}`, show)
+		}).catch(error => {
+			console.error("An error occurred:", error.message);
+			new Notice(error.message);
+		})
 	}
 
 	status(show: boolean = true): void {
@@ -117,6 +119,10 @@ class DVC {
 				})
 				.catch((err) => reject(err));
 		});
+	}
+
+	getLock(): Promise<string> {
+		return this.plug.app.vault.adapter.read(normalizePath(".dvc/tmp/lock"))
 	}
 
 	getIndexed(absFiles: TAbstractFile[] | TFile[] | TFolder[]): TFile[] {
@@ -257,6 +263,7 @@ export default class DVCPlugin extends Plugin {
 			this.dvc.status();
 		}
 
+		console.log(this)
 	}
 
 	onunload() {
